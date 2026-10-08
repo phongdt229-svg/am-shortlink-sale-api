@@ -152,7 +152,7 @@ am-shortlink-service/
 
 | Kênh | Cách xác thực | Ghi chú |
 |------|---------------|---------|
-| **API cho đối tác** — v1, v2, v3 **và** v4 báo cáo | **Giữ như cũ: tham số `key`** (body POST; query string với GET) tra `users.api_key` (`active = 1`, `api_active = 1`), quota `api_quota`, whitelist `ALLOW_IP` | Không đổi cách gọi cho đối tác; không bắt buộc header mới. Key lưu dạng hash ở DB (M5) nhưng đối tác vẫn gửi key gốc như trước |
+| **API cho đối tác** — v1, v2, v3 **và** v4 báo cáo | **Giữ như cũ: tham số `key`** (body POST; query string với GET) → SHA-256 → tra `api_keys.key_hash` (`active = true`) → lấy `users` theo `user_id` (`active = 1`, `api_active = 1`), quota `users.api_quota`, whitelist `ALLOW_IP` | Không đổi cách gọi cho đối tác; không bắt buộc header mới. Key **chỉ** lưu dạng hash trong `api_keys` (M5), `users` không giữ key; đối tác vẫn gửi key gốc như trước. Kết quả tra cứu cache LRU/Redis theo hash (TTL ngắn, xoá khi thu hồi / xoay key) |
 | **Portal** (Project 2) | Không gọi Service. Đăng nhập do **`portal-api` (Go) của Portal** xử lý: đọc `users` trong MongoDB (bcrypt `password_hash`, `portal_access`, `role`, `viewer_accounts`), tự cấp JWT cho BFF | API key **không** dùng để đăng nhập Portal; phiên Portal **không** dùng được cho API đối tác. Service chỉ cần giữ đúng các trường trên trong `users` |
 | Redirect `/{prefix}/{code}` | Không xác thực | |
 
@@ -170,7 +170,7 @@ Thứ tự viết spec: **legacy v1/v2/v3 trước** (Phase 0–1, từ code PHP
 | `clicks` | time-series: `ts`, `meta{link_id, owner, campaign_code, ctv_id}`, `ip`, `country`, `province`, `device`, `os`, `browser`, `in_app`, `referer`, `referer_host`, `source_group`, `access_prefix`, `link_prefix`, `link_api_version`, `dest_host`, `utm_*`, `hour`, `weekday`, `is_bot`, `is_suspicious`, `is_repeat`, `user_agent`, `event_id` (xem §5.5 R6b) | `(meta.owner, ts)`, `(meta.campaign_code, ts)`, `(meta.ctv_id, ts)`, `(meta.link_id, ts)`; TTL theo retention |
 | `stats_*` (link, campaign, ctv, owner, system — theo ngày / tháng) | xem §5.4 | xem §5.4 |
 | `users` | `_id` (= id cũ), `username`, `email`, `password_hash`, `role`, `active`, `api_active`, `api_quota`, `prefix`, `random_key_length`, `is_expires`, `expires_value` | unique `username` |
-| `api_keys` | `user_id`, `key_hash`, `active`, `created_at`, `rotated_at` | unique `key_hash` |
+| `api_keys` | `user_id`, `key_hash` (SHA-256 của key gốc), `active`, `created_at`, `rotated_at`, `last_used_at` | unique `key_hash`, `user_id` |
 | `campaigns` | `_id` (= id cũ), `name`, `code`, `created_by`, timestamps | unique `name`, `code` |
 | `domains`, `templates` | như hiện tại | — |
 | `prefixes` | `_id` (`sale`, `lm`), `is_default`, `is_default_v3`, `active`, `description` | — |
@@ -179,6 +179,7 @@ Ghi chú:
 - `status` thay cặp cờ `is_disabled` / `is_deleted`; xoá luôn là soft delete, **không cascade** xoá click.
 - Dedupe dùng hash mạnh + so khớp `long_url` đầy đủ (bỏ phụ thuộc crc32).
 - Sinh mã: random base62 theo độ dài cấu hình, insert và retry khi gặp duplicate key (không đọc-trước-ghi).
+- API key: **nguồn duy nhất là `api_keys`** — `users` không có trường `api_key`. Migrate: `users.api_key` (MySQL, bản rõ) → hash SHA-256 → một bản ghi `api_keys` / user (bỏ qua user có `api_key` rỗng). Key là chuỗi ngẫu nhiên đủ dài nên dùng SHA-256 (tra cứu được theo index), không cần bcrypt.
 - Quota API: đếm bằng Redis (sliding window), không `COUNT` trên `links`.
 - Các collection thống kê (`stats_*`) xem §5.
 
