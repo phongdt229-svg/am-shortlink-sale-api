@@ -1,0 +1,27 @@
+# Hạ tầng riêng của Service (local). MongoDB dùng CHUNG với Portal:
+#   docker compose -f ../am-shortlink-sale-portal/deploy/docker-compose.yml up -d mongo   (cổng 27018)
+#   docker compose -f deploy/docker-compose.yml up -d                                      (Redis 6381, Kafka 9094)
+# Không bật Kafka → để KAFKA_BROKERS trống, CLICK_SINK=direct.
+name: am-shortlink-service
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6381:6379"]
+
+  kafka:
+    image: apache/kafka:3.9.0
+    profiles: [kafka]
+    ports: ["9094:9094"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 6

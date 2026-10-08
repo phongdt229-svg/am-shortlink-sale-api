@@ -76,6 +76,7 @@ Chi tiết từng hành vi: xem [`REWRITE_CHECKLIST.md`](REWRITE_CHECKLIST.md).
 | Hạng mục | Thiết kế |
 |----------|----------|
 | Redirect | Route `GET /{prefix}/{code}` với `prefix ∈ prefixes`; vẫn hỗ trợ `GET /{code}` nếu proxy cũ cắt prefix (giai đoạn chuyển). Mặc định giữ **không gian mã chung** (D23) |
+| Trang lỗi redirect | Mọi trường hợp không redirect được → trả **trang HTML 404** (`Content-Type: text/html; charset=utf-8`, HTTP 404), **không** trả JSON: `/{prefix}/{code}` với mã không tồn tại; link `deleted` / `disabled`; prefix lạ (`/abc/{code}`); `/sale`, `/lm`, `/sale/`, `/lm/` (thiếu mã); mã sai định dạng. Giữ hành vi hệ cũ (`errors.404` Blade — `abort(404)` trong `LinkController@performRedirect`). Template HTML nhúng vào binary (`embed`), tự chứa CSS, không gọi tài nguyên ngoài; header `Cache-Control: no-store` (hoặc max-age ngắn) để mã vừa tạo không bị cache 404 ở CDN/trình duyệt. Lỗi 5xx của redirect-svc → trang HTML 500 tương tự (không lộ stack trace — D9). Negative cache 404 ở Redis/LRU TTL ngắn (vd 30–60s) và xoá khi tạo link mới trùng mã |
 | Sinh link | v1/v2 → prefix mặc định `sale`; v3 → `users.prefix` → prefix mặc định v3 (`lm`) → `sale` (giữ nguyên thứ tự hiện tại) |
 | Lưu trữ | Link mới lưu `prefix` đã cấp (để hiển thị, báo cáo); host **không** lưu vào dữ liệu, ghép theo môi trường (`fpt.vn` / `staging.fpt.vn`) |
 | Cấu hình | Env `APP_HOST`, `DEFAULT_PREFIX=sale`, `DEFAULT_PREFIX_V3=lm`; danh sách prefix trong `prefixes` |
@@ -447,6 +448,7 @@ Giả định: 2–3 dev backend, 1 QA bán thời gian (frontend thuộc Projec
 | Integration | testcontainers Mongo/Redis/Kafka cho repository, consumer, middleware |
 | Contract / golden | Replay ≥ 10.000 request thật vào PHP và Go, diff JSON (bỏ qua trường thời gian/mã random) |
 | Số liệu | So report PHP vs Go trên ≥ 20 user/campaign thật |
+| Redirect lỗi | Test bảng: `/sale`, `/lm`, `/sale/`, `/lm/`, `/sale/{mã không tồn tại}`, `/lm/{mã deleted}`, `/lm/{mã disabled}`, `/xyz/{mã hợp lệ}` → HTTP 404 + HTML (kiểm `Content-Type` và nội dung trang); so khớp với hệ PHP trong golden test |
 | Load | k6: redirect, shorten đơn, shorten-multi 1000 url, report |
 | Chaos | Tắt Redis / Kafka / 1 node Mongo trong lúc chạy tải |
 | Contract với Portal | Schema MongoDB theo `migrations/` có version; test tích hợp của `portal-api` chạy trên `migrations/` của Service; Portal chạy e2e trên staging (Project 2) |
@@ -490,6 +492,7 @@ Các hành vi hiện tại là bug/rủi ro — phải chốt **giữ** hay **s�
 | D31 | Tách database báo cáo `am_shortlink_report` khỏi `am_shortlink` — cùng cụm hay cụm riêng | Cùng cụm giai đoạn đầu, tách cụm khi tải báo cáo ảnh hưởng redirect |
 | D29 | Lưu sẵn `utm_*`, `dest_host` trên link và `os`, `browser`, `province` trên click — có cần GeoIP City (tỉnh/thành) không | Có lưu; GeoIP City nếu có license MaxMind City |
 | D27 | Swagger UI ở production: tắt hẳn, chỉ IP nội bộ, hay công khai cho đối tác | Tắt `/docs` trên prod; publish bản HTML (Redoc) riêng cho đối tác |
+| D32 | Redirect nhận `?debug=1` (in toàn bộ bản ghi link qua `dd($link)`) và `?debug=2` (in kết quả gọi FMI) — ai cũng gọi được, lộ dữ liệu | **Bỏ hẳn** ở hệ mới; chẩn đoán qua log/trace. Tắt ngay trên hệ PHP |
 | D26 | Môi trường, log Kafka, OpenTelemetry | Theo E1–E12 trong [`ENV_OBSERVABILITY_PLAN.md`](ENV_OBSERVABILITY_PLAN.md) §6 |
 
 ---
